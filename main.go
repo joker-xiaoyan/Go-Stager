@@ -156,11 +156,11 @@ func GetBeaconData() *BeaconData {
 		HostName:  hostname,
 		User:      user,
 		ProcName:  procname,
-		ProcID:    int(procid),
+		ProcID:    procid,
 		Integrity: integrity,
 		Arch:      arch,
 		IPAddr:    ip,
-		OS:        "Windows",
+		OS:        "Linux",
 	}
 }
 
