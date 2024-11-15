@@ -5,9 +5,10 @@ import (
 )
 
 var (
-	ServerHost                    = ""
+	ServerHost                    = "121.36.61.196"
+	ServerPort                    = 5004
 	IgnoreSSLVerify               = true
-	TimeOut         time.Duration = 10 * time.Second
+	TimeOut         time.Duration = 5 * time.Second
 	DownloadSize                  = 1024 * 1024 * 5
 	DeleteSelf                    = false
 	ProxyUrl                      = ""
