@@ -41,9 +41,10 @@ func ShellExecute(command string) (string, error) {
 	if err != nil {
 		sh_path = "/bin/sh"
 	}
+
 	cmdstr, _ := util.Strim(command)
 	base64Cmd := base64.StdEncoding.EncodeToString([]byte(cmdstr))
-	final_cmd := util.Sprintf("echo %s | timeout 5 base64 -d | timeout %d %s", base64Cmd, 5, sh_path)
+	final_cmd := util.Sprintf("echo %s | timeout 4 base64 -d | timeout %d %s", base64Cmd, 4, sh_path)
 
 	cmd := exec.Command(sh_path, "-c", final_cmd)
 	output, err := cmd.CombinedOutput()
@@ -311,7 +312,7 @@ func ReadHistory(input string) (string, error) {
 	if limitSize && len(historyContent) > maxSize {
 		historyContent = historyContent[:maxSize] + "\n[Output truncated to 2KB]\n"
 	}
-	//util.Println("结果：", historyContent)
+	// util.Println("结果：", historyContent)
 	return historyContent, nil
 }
 func CreateFile(input string) (string, error) {
