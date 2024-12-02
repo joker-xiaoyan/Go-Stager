@@ -5,7 +5,6 @@ package Command
 
 import (
 	"GO_Stager/util"
-	"log"
 	"os"
 	"os/exec"
 	"strings"
@@ -33,7 +32,7 @@ func Auto_decode_string_on_windows(input []byte) (output []byte) {
 	detector := chardet.NewTextDetector()
 	result, err := detector.DetectBest(input)
 	if err != nil {
-		log.Println("Error detecting encoding:", err)
+		util.Println("Error detecting encoding:", err)
 		os.Exit(1)
 	} else {
 		util.Sprintf("\nfound encoding:\t%s\n", result.Charset)

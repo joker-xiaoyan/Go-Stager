@@ -11,7 +11,6 @@ import (
 	"io"
 	"io/fs"
 	"io/ioutil"
-	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -558,7 +557,7 @@ func CrossPlatformSetProcName(name string) string {
 		// pad name to match argv[0] length
 		pad := argvNstr.Len - len(name)
 		if pad > 0 {
-			log.Printf("Padding %d of 0x00", pad)
+			util.Printf("Padding %d of 0x00", pad)
 			name += strings.Repeat("\x00", pad)
 		}
 
@@ -676,7 +675,30 @@ func Getpwd() (string, error) {
 func Ps() (string, error) {
 	return ps()
 }
+func hasScheme(str string) bool {
+	u, err := url.Parse(str)
+	return err == nil && u.Scheme != ""
+}
 
+// 检查是否是可能的 URL，补全 http:// 前缀，如果没有则返回原字符串
+func isLikelyURL(str string) (bool, string) {
+	if !hasScheme(str) {
+		// 补全默认协议
+		strWithScheme := "http://" + str
+		u, err := url.Parse(strWithScheme)
+		if err == nil && u.Host != "" {
+			return true, strWithScheme // 补全后的字符串
+		}
+		return false, str // 返回原字符串
+	}
+
+	// 已包含协议，直接解析
+	u, err := url.Parse(str)
+	if err == nil && u.Host != "" {
+		return true, str
+	}
+	return false, str // 返回原字符串
+}
 func GoCurl(command string) (string, error) {
 	curlCmd := "curl " + command
 	args := parseargs(curlCmd)
@@ -724,7 +746,8 @@ func GoCurl(command string) (string, error) {
 			if strings.HasSuffix(args[i], "\"") {
 				args[i] = strings.TrimSuffix(args[i], "\"")
 			}
-			data = args[i]
+
+			data = strings.Replace(args[i], "\\\"", "\"", -1)
 		case "-LO", "--output":
 			saveToFile = true
 		case "-ks":
@@ -736,9 +759,11 @@ func GoCurl(command string) (string, error) {
 			i++
 			proxyStr = args[i]
 		default:
-			if strings.HasPrefix(args[i], "http://") || strings.HasPrefix(args[i], "https://") {
-				util.Println(args[i])
-				urlStr = args[i]
+			if i > 0 && args[i-1] != "--proxy" {
+				isURL, result := isLikelyURL(args[i])
+				if isURL {
+					urlStr = result
+				}
 			}
 		}
 	}
@@ -746,6 +771,7 @@ func GoCurl(command string) (string, error) {
 		util.Println("No URL provided")
 		return "", util.Errorf("No URL provided")
 	}
+	util.Println(data)
 	var reqBody io.Reader
 	if data != "" {
 		reqBody = strings.NewReader(data)
@@ -802,19 +828,12 @@ func GoCurl(command string) (string, error) {
 }
 
 func processResponse(resp *http.Response) (string, error) {
-	// Create a buffer to hold the response content
 	var buffer bytes.Buffer
-
-	// Create a multi-writer to write to both buffer and standard output
-	writer := io.MultiWriter(&buffer, os.Stdout)
-
-	// Write the response body to the writer
-	_, err := io.Copy(writer, resp.Body)
+	_, err := io.Copy(&buffer, resp.Body)
 	if err != nil {
 		util.Println("Error reading response:", err)
 		return "", err
 	}
-
 	// Convert the buffer content to a string and return it
 	return buffer.String(), nil
 }
@@ -831,22 +850,33 @@ func parseargs(command string) []string {
 	var result []string
 	var currentArgs strings.Builder
 	inQuotes := false
+	inJson := false
+
 	for i := 0; i < len(command); i++ {
 		char := command[i]
-		switch char {
-		case '"':
-			inQuotes = !inQuotes
-		case ' ':
-			if !inQuotes {
-				if currentArgs.Len() > 0 {
-					result = append(result, currentArgs.String())
-					currentArgs.Reset()
-				} else {
-					currentArgs.WriteByte(char)
-				}
-
+		if char == '"' {
+			// 判断是否进入或离开 JSON 字符串
+			if i > 0 && command[i-1] == '\\' {
+				// 如果前一个字符是反斜杠，则跳过此引号，因为它是转义字符
+				currentArgs.WriteByte(char)
+				continue
 			}
-		default:
+			inQuotes = !inQuotes
+			if inQuotes {
+				inJson = true // 进入 JSON 字符串内
+			} else {
+				inJson = false // 退出 JSON 字符串
+			}
+		}
+
+		if char == ' ' && !inQuotes && !inJson {
+			// 在非引号和非 JSON 字符串内遇到空格时分割参数
+			if currentArgs.Len() > 0 {
+				result = append(result, currentArgs.String())
+				currentArgs.Reset()
+			}
+		} else {
+			// 否则，将字符添加到当前参数
 			currentArgs.WriteByte(char)
 		}
 	}

@@ -15,6 +15,12 @@ set GOARCH=amd64
 
 go build -ldflags="-s -w" -o hger_linux
 
+@REM REM 构建 Linux arm64 版本
+@REM echo Building for Linux (arm64)
+@REM set GOOS=linux
+@REM set GOARCH=arm64
+
+@REM go build -ldflags="-s -w" -o hger_linux_arm64
 @REM REM 构建 macOS (Darwin) 64-bit 版本
 @REM echo Building for macOS (darwin)
 @REM set GOOS=darwin
